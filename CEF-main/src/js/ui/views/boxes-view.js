@@ -76,7 +76,10 @@ export class BoxesView {
               <span class="badge ${available ? 'badge--success' : 'badge--warning'}">
                 ${escapeHtml(box.status)}
               </span>
-              <button type="button" class="icon-button is-danger" data-action="delete-box"
+               <button type="button" class="icon-button" data-action="edit-box"
+                       data-id="${escapeHtml(box.id)}" title="Editar caixa"
+                       aria-label="Editar caixa ${escapeHtml(box.id)}">${icon('pencil')}</button>
+               <button type="button" class="icon-button is-danger" data-action="delete-box"
                       data-id="${escapeHtml(box.id)}" title="Excluir caixa"
                       aria-label="Excluir caixa ${escapeHtml(box.id)}">${icon('trash')}</button>
             </div>
@@ -99,6 +102,8 @@ export class BoxesView {
         const { action, id } = target.dataset;
         if (action === 'new-box') {
           this.#openForm();
+        } else if (action === 'edit-box') {
+          this.#openForm(id);
         } else if (action === 'delete-box') {
           this.#remove(id);
         }
@@ -106,37 +111,43 @@ export class BoxesView {
     );
   }
 
-  #openForm() {
+  #openForm(id = null) {
+    const box = id ? this.#inventory.getBox(id) : null;
     const body = `
       <form id="box-form" class="form">
         <div class="field">
           <label class="field__label" for="box-code">Código da Caixa</label>
           <input class="input input--mono" id="box-code" name="id" required autocomplete="off"
-                 placeholder="Ex: CX-005" value="CX-${String(Math.floor(100 + Math.random() * 900))}" />
+                 placeholder="Ex: CX-005" value="${escapeHtml(box ? box.id : `CX-${Math.floor(100 + Math.random() * 900)}`)}" ${box ? 'disabled' : ''} />
         </div>
         <div class="field">
           <label class="field__label" for="box-name">Nome / Identificação</label>
           <input class="input" id="box-name" name="nome" required autocomplete="off"
-                 placeholder="Ex: Caixa Metálica Azul N° 3" />
+                 placeholder="Ex: Caixa Metálica Azul N° 3" value="${escapeHtml(box ? box.nome : '')}" />
         </div>
       </form>`;
 
     const footer = `
       <button type="button" class="btn" data-modal-close>Cancelar</button>
-      <button type="submit" class="btn btn--primary" form="box-form">Salvar Caixa</button>`;
+      <button type="submit" class="btn btn--primary" form="box-form">${box ? 'Salvar' : 'Salvar Caixa'}</button>`;
 
     const modal = openModal({
-      title: 'Nova Caixa de Ferramentas',
+      title: box ? 'Editar Caixa de Ferramentas' : 'Nova Caixa de Ferramentas',
       body,
       footer,
-      onMount: (bodyElement) => {
+      onMount: (bodyElement, modalController) => {
         bodyElement.querySelector('#box-form').addEventListener('submit', (event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
           try {
-            this.#inventory.createBox({ id: data.get('id'), nome: data.get('nome') });
-            toast.success('Caixa cadastrada no estoque.');
-            modal.close();
+            if (box) {
+              this.#inventory.updateBox(box.id, { nome: data.get('nome') });
+              toast.success('Caixa atualizada.');
+            } else {
+              this.#inventory.createBox({ id: data.get('id'), nome: data.get('nome') });
+              toast.success('Caixa cadastrada no estoque.');
+            }
+            modalController.close();
           } catch (error) {
             toast.error(error.message);
           }

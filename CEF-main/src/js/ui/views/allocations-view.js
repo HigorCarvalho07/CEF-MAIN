@@ -107,6 +107,10 @@ export class AllocationsView {
         <td>${this.#statusBadge(overdue)}</td>
         <td class="cell--right">
           <div class="cell-actions">
+           <button type="button" class="icon-button" data-action="edit-allocation" data-id="${escapeHtml(allocation.id)}"
+                   title="Editar alocação" aria-label="Editar alocação ${escapeHtml(allocation.id)}">
+             ${icon('pencil')}
+           </button>
             <button type="button" class="icon-button" data-action="print-guide" data-id="${escapeHtml(allocation.id)}"
                     title="Imprimir guia" aria-label="Imprimir guia ${escapeHtml(allocation.id)}">
               ${icon('printer')}
@@ -135,6 +139,8 @@ export class AllocationsView {
           openAllocationForm({ inventory: this.#inventory });
         } else if (action === 'view-box') {
           this.#openBoxDetail(id);
+        } else if (action === 'edit-allocation') {
+          this.#openEditAllocation(id);
         } else if (action === 'print-guide') {
           const allocation = this.#inventory.getAllocation(id);
           printHtml(this.#reports.allocationGuide(allocation));
@@ -164,12 +170,16 @@ export class AllocationsView {
       allocation.itens.length === 0
         ? '<p class="text-muted">Nenhum item alocado.</p>'
         : allocation.itens
-            .map(
-              (item) => `<div class="detail-item">
-                <span class="detail-item__name">${escapeHtml(item.nome)}</span>
+            .map((item) => {
+              const toolName = item.nome || (() => {
+                const tool = this.#inventory.listTools().find((t) => t.id === item.ferramentaId);
+                return tool ? tool.nome : 'Ferramenta desconhecida';
+              })();
+              return `<div class="detail-item">
+                <span class="detail-item__name">${escapeHtml(toolName)}</span>
                 <span class="detail-item__qty">Qtd: ${escapeHtml(item.quantidade)}</span>
-              </div>`,
-            )
+              </div>`;
+            })
             .join('');
 
     openModal({
@@ -187,6 +197,54 @@ export class AllocationsView {
           </div>
         </div>`,
       footer: '<button type="button" class="btn btn--primary" data-modal-close>Fechar</button>',
+    });
+  }
+
+  #openEditAllocation(id) {
+    const allocation = this.#inventory.getAllocation(id);
+    const body = `
+      <form id="allocation-edit-form" class="form">
+        <div class="field">
+          <label class="field__label" for="edit-empresa">Empresa / Solicitante</label>
+          <input class="input" id="edit-empresa" name="empresa" required value="${escapeHtml(allocation.empresa)}" />
+        </div>
+        <div class="form-grid form-grid--2">
+          <div class="field">
+            <label class="field__label" for="edit-data-abertura">Data de Abertura</label>
+            <input class="input" type="date" id="edit-data-abertura" name="dataAbertura" required value="${escapeHtml(allocation.dataAbertura)}" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="edit-data-expiracao">Devolução Prevista</label>
+            <input class="input" type="date" id="edit-data-expiracao" name="dataExpiracao" required value="${escapeHtml(allocation.dataExpiracao)}" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" data-modal-close>Cancelar</button>
+          <button type="submit" class="btn btn--primary">Salvar</button>
+        </div>
+      </form>`;
+    openModal({
+      title: `Editar Alocação ${escapeHtml(allocation.id)}`,
+      body,
+      onMount: (bodyElement, modalController) => {
+        const form = bodyElement.querySelector('#allocation-edit-form');
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          const data = new FormData(form);
+          try {
+            this.#inventory.updateAllocation(id, {
+              empresa: data.get('empresa'),
+              dataAbertura: data.get('dataAbertura'),
+              dataExpiracao: data.get('dataExpiracao'),
+            });
+            toast.success('Alocação atualizada.');
+            modalController.close();
+            this.render();
+          } catch (error) {
+            toast.error(error.message);
+          }
+        });
+      },
     });
   }
 

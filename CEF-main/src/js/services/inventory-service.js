@@ -5,6 +5,7 @@ import { BoxStatus, StateScope } from '../domain/enums.js';
 import {
   applyProfileChanges,
   applyToolChanges,
+  applyBoxChanges,
   createAllocation,
   createAllocationItems,
   createProfile,
@@ -85,6 +86,18 @@ export class InventoryService {
     return this.#requireAllocation(id);
   }
 
+  updateAllocation(id, input) {
+    const current = this.#requireAllocation(id);
+    const empresa = input.empresa !== undefined ? requireText(input.empresa, 'Empresa / Solicitante') : current.empresa;
+    const dataAbertura = input.dataAbertura !== undefined ? requireIsoDate(input.dataAbertura, 'Data de abertura') : current.dataAbertura;
+    const dataExpiracao = input.dataExpiracao !== undefined ? requireIsoDate(input.dataExpiracao, 'Devolução prevista') : current.dataExpiracao;
+    requireChronologicalOrder(dataAbertura, dataExpiracao, 'Data de abertura', 'Devolução prevista');
+    const updated = { ...current, empresa, dataAbertura, dataExpiracao };
+    this.#allocations.update(id, updated);
+    this.#notify(StateScope.ALLOCATIONS);
+    return updated;
+  }
+
   listHistory() {
     return this.#history.all();
   }
@@ -161,6 +174,14 @@ export class InventoryService {
     this.#boxes.insert(box);
     this.#notify(StateScope.BOXES);
     return box;
+  }
+
+  updateBox(id, input) {
+    const current = this.#requireBox(id);
+    const updated = applyBoxChanges(current, input);
+    this.#boxes.update(id, updated);
+    this.#notify(StateScope.BOXES);
+    return updated;
   }
 
   deleteBox(id) {

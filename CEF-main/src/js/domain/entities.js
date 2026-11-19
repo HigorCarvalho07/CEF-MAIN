@@ -84,6 +84,14 @@ export function createToolBox(input) {
   };
 }
 
+/** Apply partial changes to a tool box. */
+export function applyBoxChanges(box, changes) {
+  return {
+    ...box,
+    nome: changes.nome !== undefined ? requireText(changes.nome, 'Nome da caixa') : box.nome,
+  };
+}
+
 /** Create a user profile. */
 export function createProfile(input) {
   const nivel = requireOneOf(
@@ -127,13 +135,18 @@ export function createAllocationItems(items) {
   for (const item of items) {
     const ferramentaId = requireText(item.ferramentaId, 'Ferramenta');
     const quantidade = requirePositiveInteger(item.quantidade, 'Quantidade');
-    const previous = aggregated.get(ferramentaId) ?? 0;
-    aggregated.set(ferramentaId, previous + quantidade);
+    const nome = typeof item.nome === 'string' ? item.nome.trim() : '';
+    const previous = aggregated.get(ferramentaId) ?? { quantidade: 0, nome };
+    aggregated.set(ferramentaId, {
+      quantidade: previous.quantidade + quantidade,
+      nome: previous.nome || nome,
+    });
   }
 
-  return [...aggregated.entries()].map(([ferramentaId, quantidade]) => ({
+  return [...aggregated.entries()].map(([ferramentaId, { quantidade, nome }]) => ({
     ferramentaId,
     quantidade,
+    nome,
   }));
 }
 
