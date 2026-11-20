@@ -1,7 +1,7 @@
 import { nextId } from '../core/ids.js';
 import { todayIso } from '../core/format.js';
 import { ConflictError, NotFoundError } from '../domain/errors.js';
-import { BoxStatus, StateScope } from '../domain/enums.js';
+import { BoxStatus, ItemReturnCondition, StateScope } from '../domain/enums.js';
 import {
   applyProfileChanges,
   applyToolChanges,
@@ -299,24 +299,63 @@ export class InventoryService {
    * Close an allocation: items return to stock, the box is released and a
    * service record is appended to the history.
    */
-  finalizeAllocation(id) {
+    /**
+   * Close an allocation: items return to stock based on their condition,
+   * the box is released and a service record is appended to the history.
+   *
+   * @param {string} id  allocation id
+   * @param {{ferramentaId: string, condition: string}[]} itemConditions
+   */
+  finalizeAllocation(id, itemConditions = []) {
     const allocation = this.#requireAllocation(id);
+
+    // Mapeia o estado de cada ferramenta (Em perfeito estado vs Quebrado/Perdido)
+    const conditionMap = new Map(
+      itemConditions.map((entry) => [entry.ferramentaId, entry.condition]),
+    );
+
+    const returnedItems = [];
 
     for (const item of allocation.itens) {
       const tool = this.#tools.getById(item.ferramentaId);
       if (!tool) {
+        returnedItems.push({ ...item, estado: ItemReturnCondition.PERFECT });
         continue;
       }
-      this.#tools.update(tool.id, {
-        disponivel: tool.disponivel + item.quantidade,
-        alocadas: Math.max(0, tool.alocadas - item.quantidade),
-      });
+
+      const condition =
+        conditionMap.get(item.ferramentaId) ?? ItemReturnCondition.PERFECT;
+
+      if (condition === ItemReturnCondition.BROKEN) {
+        // Quebrado/Perdido: sai de "alocadas" e entra em "quebradas"
+        this.#tools.update(tool.id, {
+          alocadas: Math.max(0, tool.alocadas - item.quantidade),
+          quebradas: tool.quebradas + item.quantidade,
+        });
+        returnedItems.push({ ...item, estado: ItemReturnCondition.BROKEN });
+      } else {
+        // Em perfeito estado: sai de "alocadas" e volta para "disponivel"
+        this.#tools.update(tool.id, {
+          disponivel: tool.disponivel + item.quantidade,
+          alocadas: Math.max(0, tool.alocadas - item.quantidade),
+        });
+        returnedItems.push({ ...item, estado: ItemReturnCondition.PERFECT });
+      }
     }
 
     const box = this.#boxes.getById(allocation.caixaId);
     if (box) {
       this.#boxes.update(box.id, { status: BoxStatus.AVAILABLE });
     }
+
+    const brokenSummary = returnedItems
+      .filter((item) => item.estado === ItemReturnCondition.BROKEN)
+      .map((item) => `${item.nome} (×${item.quantidade})`)
+      .join(', ');
+
+    const observacoes = brokenSummary
+      ? `Itens quebrados/perdidos: ${brokenSummary}.`
+      : 'Devolução realizada — todos os itens em perfeito estado.';
 
     const record = createServiceRecord({
       id: allocation.id,
@@ -326,8 +365,8 @@ export class InventoryService {
       codigoCaixa: allocation.codigoCaixa,
       nomeCaixa: allocation.nomeCaixa,
       pessoas: allocation.pessoas,
-      itens: allocation.itens,
-      observacoes: 'Devolução realizada sem observações.',
+      itens: returnedItems,
+      observacoes,
     });
 
     this.#history.insert(record);

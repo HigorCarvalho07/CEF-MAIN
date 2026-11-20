@@ -1,6 +1,6 @@
 import { delegate, escapeHtml } from '../../core/dom.js';
 import { formatDate, isOverdue } from '../../core/format.js';
-import { AllocationStatus, ViewId } from '../../domain/enums.js';
+import { AllocationStatus, ItemReturnCondition, ViewId } from '../../domain/enums.js';
 import { openAllocationForm } from '../components/allocation-form.js';
 import { icon } from '../components/icons.js';
 import { openModal } from '../components/modal.js';
@@ -248,12 +248,107 @@ export class AllocationsView {
     });
   }
 
-  #finalize(id) {
-    try {
-      const record = this.#inventory.finalizeAllocation(id);
-      toast.success(`Alocação ${record.id} concluída e movida para o histórico.`);
-    } catch (error) {
-      toast.error(error.message);
-    }
+    #finalize(id) {
+    const allocation = this.#inventory.getAllocation(id);
+
+    // --- Monta a lista de itens com caixa de seleção de estado ---
+        const itemsHtml = allocation.itens
+      .map((item) => {
+        // Busca o nome da ferramenta pelo ID caso item.nome esteja vazio
+        let toolName = item.nome;
+        try {
+          toolName = toolName || this.#inventory.getTool(item.ferramentaId)?.nome;
+        } catch {
+          toolName = item.ferramentaId;
+        }
+
+        return `
+        <div class="detail-item" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <span class="detail-item__name" style="flex:1 1 50%;min-width:0;font-weight:600;">
+            ${escapeHtml(toolName || item.ferramentaId)}
+            <span class="text-muted" style="font-size:0.75rem;font-weight:normal;"> (Qtd: ${item.quantidade})</span>
+          </span>
+          <select class="input input--sm" data-tool-id="${escapeHtml(item.ferramentaId)}"
+                  style="flex:0 0 auto;width:auto;min-width:11rem;">
+            <option value="${ItemReturnCondition.PERFECT}">Íntegro</option>
+            <option value="${ItemReturnCondition.BROKEN}">Quebrado/Perdido</option>
+          </select>
+        </div>`;
+      })
+      .join('');
+
+    // --- Conteúdo do modal e mensagem de confirmação ---
+    const body = `
+      <div class="form">
+        <div class="field">
+          <span class="field__label">Informe o estado de cada item devolvido</span>
+          <div class="detail-list" id="finalize-items">${itemsHtml}</div>
+        </div>
+        <div id="finalize-confirm" class="is-hidden"
+             style="padding:var(--space-3);border:1px solid var(--warning-300);
+                    border-radius:var(--radius-lg);background:var(--warning-100);
+                    text-align:center;">
+          <p style="font-weight:600;color:var(--warning-700);margin-bottom:var(--space-2);">
+            ${icon('alert-triangle')} Tem certeza que deseja concluir esta alocação?
+          </p>
+          <p style="font-size:0.7rem;color:var(--slate-500);margin-bottom:var(--space-3);">
+            O estoque será atualizado automaticamente e a alocação será movida para o histórico.
+          </p>
+          <div style="display:flex;justify-content:center;gap:var(--space-2);">
+            <button type="button" class="btn btn--sm" data-cancel-confirm>Voltar</button>
+            <button type="button" class="btn btn--sm btn--success" data-confirm-final>
+              ${icon('check')} Sim, Concluir
+            </button>
+          </div>
+        </div>
+      </div>`;
+
+    const footer = `
+      <button type="button" class="btn" data-modal-close>Cancelar</button>
+      <button type="button" class="btn btn--success" id="btn-finalize-next">
+        ${icon('check')} Concluir Alocação
+      </button>`;
+
+    const inventoryRef = this.#inventory;
+
+    const modal = openModal({
+      title: `Concluir Alocação · ${allocation.id}`,
+      body,
+      footer,
+      size: 'lg',
+      onMount(bodyEl) {
+        // Clicar em "Concluir Alocação" abre a pergunta de confirmação
+        bodyEl.closest('.modal').querySelector('#btn-finalize-next')
+          .addEventListener('click', () => {
+            bodyEl.querySelector('#finalize-confirm').classList.remove('is-hidden');
+            bodyEl.closest('.modal').querySelector('#btn-finalize-next').classList.add('is-hidden');
+          });
+
+        // Clicar em "Voltar" cancela a pergunta
+        bodyEl.querySelector('[data-cancel-confirm]')
+          .addEventListener('click', () => {
+            bodyEl.querySelector('#finalize-confirm').classList.add('is-hidden');
+            bodyEl.closest('.modal').querySelector('#btn-finalize-next').classList.remove('is-hidden');
+          });
+
+        // Clicar em "Sim, Concluir" finaliza de verdade e atualiza o estoque
+        bodyEl.querySelector('[data-confirm-final]')
+          .addEventListener('click', () => {
+            const selects = bodyEl.querySelectorAll('#finalize-items select');
+            const itemConditions = [...selects].map((sel) => ({
+              ferramentaId: sel.dataset.toolId,
+              condition: sel.value,
+            }));
+
+            try {
+              const record = inventoryRef.finalizeAllocation(id, itemConditions);
+              toast.success(`Alocação ${record.id} concluída e movida para o histórico.`);
+              modal.close();
+            } catch (error) {
+              toast.error(error.message);
+            }
+          });
+      },
+    });
   }
 }

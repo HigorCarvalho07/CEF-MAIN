@@ -20,6 +20,12 @@ export const ServiceStatus = Object.freeze({
   COMPLETED: 'Concluído',
 });
 
+/** Condition of a returned item at finalisation. */
+export const ItemReturnCondition = Object.freeze({
+  PERFECT: 'Integro',
+  BROKEN: 'Quebrado/Perdido',
+});
+
 /** Status of a user profile. */
 export const ProfileStatus = Object.freeze({
   ACTIVE: 'Ativo',
